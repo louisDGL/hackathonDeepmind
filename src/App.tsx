@@ -18,7 +18,10 @@ import {
   ShieldCheck,
   AlertCircle,
   FileCode,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Award,
+  Star,
+  Zap
 } from 'lucide-react';
 
 interface ExtractedLogo {
@@ -29,6 +32,9 @@ interface ExtractedLogo {
   label: string;
   dimensions?: string;
   isPrimary?: boolean;
+  score?: number;
+  clarityBadge?: string;
+  reason?: string;
 }
 
 interface SiteMeta {
@@ -37,6 +43,8 @@ interface SiteMeta {
   themeColor?: string;
   domain: string;
   fullUrl: string;
+  searchQuery?: string;
+  resolvedBrand?: string;
 }
 
 interface ExtractionResponse {
@@ -54,16 +62,77 @@ interface HistoryItem {
   timestamp: number;
 }
 
+function SafeImage({
+  src,
+  alt,
+  className,
+  fallbackDomain,
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+  fallbackDomain?: string;
+}) {
+  const [currentSrc, setCurrentSrc] = useState(src);
+  const [hasError, setHasError] = useState(false);
+  const [hasTriedProxy, setHasTriedProxy] = useState(false);
+
+  useEffect(() => {
+    setCurrentSrc(src);
+    setHasError(false);
+    setHasTriedProxy(false);
+  }, [src]);
+
+  const handleError = () => {
+    // Only attempt proxy if the src is an external http/https URL and we haven't tried proxying yet
+    const isHttp = /^https?:\/\//i.test(src);
+    if (!hasTriedProxy && isHttp && !currentSrc.startsWith('/api/proxy-image')) {
+      setHasTriedProxy(true);
+      setCurrentSrc(`/api/proxy-image?url=${encodeURIComponent(src)}`);
+      return;
+    }
+
+    // Fallback to Google high-res favicon if available and not already attempted
+    if (fallbackDomain && !currentSrc.includes('gstatic.com')) {
+      setCurrentSrc(
+        `https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${fallbackDomain}&size=256`
+      );
+      return;
+    }
+
+    setHasError(true);
+  };
+
+  if (hasError) {
+    return (
+      <div className="flex flex-col items-center justify-center text-slate-400 p-2 text-center select-none">
+        <ImageIcon className="w-7 h-7 stroke-1 mb-1 text-slate-300 dark:text-slate-600" />
+        <span className="text-[10px] text-slate-400">Aperçu indisponible</span>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={currentSrc}
+      alt={alt}
+      className={className}
+      onError={handleError}
+      loading="lazy"
+    />
+  );
+}
+
 const PRESET_DOMAINS = [
-  { name: 'Google', url: 'google.com' },
-  { name: 'Apple', url: 'apple.com' },
-  { name: 'GitHub', url: 'github.com' },
-  { name: 'Stripe', url: 'stripe.com' },
-  { name: 'Figma', url: 'figma.com' },
-  { name: 'Spotify', url: 'spotify.com' },
-  { name: 'Netflix', url: 'netflix.com' },
-  { name: 'Airbnb', url: 'airbnb.com' },
-  { name: 'Notion', url: 'notion.so' },
+  { name: 'Le Monde', query: 'Le Monde' },
+  { name: 'Tesla', query: 'Tesla' },
+  { name: 'SNCF', query: 'SNCF' },
+  { name: 'Nike', query: 'Nike' },
+  { name: 'Google', query: 'google.com' },
+  { name: 'Apple', query: 'apple.com' },
+  { name: 'Stripe', query: 'stripe.com' },
+  { name: 'Figma', query: 'figma.com' },
+  { name: 'Spotify', query: 'spotify.com' },
 ];
 
 export default function App() {
@@ -76,6 +145,7 @@ export default function App() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [filterCategory, setFilterCategory] = useState<'all' | 'recommended' | 'svg' | 'hd'>('all');
 
   // Load history on mount
   useEffect(() => {
@@ -271,24 +341,24 @@ export default function App() {
           <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-slate-900 dark:text-white">
             Extrayez le logo de{' '}
             <span className="bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 bg-clip-text text-transparent">
-              n&apos;importe quel site
+              n&apos;importe quelle marque
             </span>
           </h1>
           <p className="text-slate-600 dark:text-slate-400 text-sm sm:text-base">
-            Entrez une adresse de site web (ex : <span className="font-mono text-slate-800 dark:text-slate-200">google.com</span>) pour obtenir instantanément tous ses logos officiels, icônes haute résolution et formats vectoriels.
+            Entrez une adresse de site ou simplement le nom d&apos;une entreprise (ex : <span className="font-semibold text-slate-800 dark:text-slate-200">Le Monde</span>, <span className="font-semibold text-slate-800 dark:text-slate-200">Tesla</span>, <span className="font-semibold text-slate-800 dark:text-slate-200">SNCF</span>). L&apos;application trouve automatiquement le site officiel le plus pertinent et en extrait le meilleur logo !
           </p>
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="mt-6 relative">
             <div className="relative flex items-center shadow-lg shadow-indigo-500/5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus-within:border-indigo-500 focus-within:ring-4 focus-within:ring-indigo-500/10 transition-all p-1.5 sm:p-2">
               <div className="pl-3 pr-2 text-slate-400">
-                <Globe className="w-5 h-5" />
+                <Search className="w-5 h-5" />
               </div>
               <input
                 type="text"
                 value={inputUrl}
                 onChange={(e) => setInputUrl(e.target.value)}
-                placeholder="Entrez une URL (ex: google.com, figma.com, stripe.com)"
+                placeholder="Nom de marque ou URL (ex: Le Monde, Tesla, SNCF, google.com, Nike...)"
                 className="w-full bg-transparent px-2 py-2.5 text-sm sm:text-base text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none"
               />
               <button
@@ -299,12 +369,12 @@ export default function App() {
                 {isLoading ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Extraction...</span>
+                    <span>Recherche & extraction...</span>
                   </>
                 ) : (
                   <>
-                    <Search className="w-4 h-4" />
-                    <span>Obtenir le logo</span>
+                    <Sparkles className="w-4 h-4" />
+                    <span>Trouver le logo</span>
                   </>
                 )}
               </button>
@@ -316,11 +386,11 @@ export default function App() {
             <span className="text-xs text-slate-400 mr-1">Exemples rapides :</span>
             {PRESET_DOMAINS.map((item) => (
               <button
-                key={item.url}
+                key={item.query}
                 type="button"
                 onClick={() => {
-                  setInputUrl(item.url);
-                  handleExtract(item.url);
+                  setInputUrl(item.query);
+                  handleExtract(item.query);
                 }}
                 className="text-xs px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800/80 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 hover:text-indigo-600 dark:hover:text-indigo-400 border border-slate-200/60 dark:border-slate-800 transition cursor-pointer text-slate-600 dark:text-slate-300"
               >
@@ -340,16 +410,41 @@ export default function App() {
 
         {/* Results Area */}
         {data && (
-          <section className="space-y-8 animate-fade-in">
+          <section className="space-y-6 animate-fade-in">
+            {/* Search Query Resolution Notification Banner */}
+            {data.meta.searchQuery && (
+              <div className="p-3.5 sm:p-4 rounded-2xl bg-indigo-50/90 dark:bg-indigo-950/40 border border-indigo-200/80 dark:border-indigo-800/60 flex items-center justify-between flex-wrap gap-3 text-xs sm:text-sm text-indigo-950 dark:text-indigo-200 shadow-xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                    <Search className="w-3.5 h-3.5" />
+                  </div>
+                  <div>
+                    <span>
+                      Recherche : <strong className="font-semibold text-indigo-700 dark:text-indigo-300">« {data.meta.searchQuery} »</strong>
+                    </span>
+                    <span className="mx-2 text-indigo-400">→</span>
+                    <span>
+                      Site officiel identifié : <strong className="font-semibold">{data.meta.domain}</strong>
+                      {data.meta.resolvedBrand && ` (${data.meta.resolvedBrand})`}
+                    </span>
+                  </div>
+                </div>
+                <span className="text-[11px] font-medium px-2.5 py-1 rounded-full bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300">
+                  Site officiel le plus pertinent
+                </span>
+              </div>
+            )}
+
             {/* Meta Information Bar */}
             <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div className="flex items-center gap-4">
                 {selectedLogo && (
                   <div className="w-14 h-14 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-2 flex items-center justify-center shrink-0">
-                    <img
+                    <SafeImage
                       src={selectedLogo.url}
                       alt={data.meta.domain}
                       className="max-h-full max-w-full object-contain"
+                      fallbackDomain={data.meta.domain}
                     />
                   </div>
                 )}
@@ -392,10 +487,22 @@ export default function App() {
                 {/* Visual Preview Box */}
                 <div className="lg:col-span-7 p-6 sm:p-10 flex flex-col justify-between border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800">
                   <div className="flex items-center justify-between pb-4">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {selectedLogo.isPrimary && (
+                        <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-gradient-to-r from-amber-500 to-yellow-500 text-white flex items-center gap-1 shadow-xs">
+                          <Star className="w-3.5 h-3.5 fill-white" />
+                          Recommandé
+                        </span>
+                      )}
                       <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 uppercase tracking-wider">
                         {selectedLogo.type}
                       </span>
+                      {selectedLogo.clarityBadge && (
+                        <span className="text-xs font-medium px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60 flex items-center gap-1">
+                          <Zap className="w-3 h-3 text-emerald-500" />
+                          {selectedLogo.clarityBadge}
+                        </span>
+                      )}
                       {selectedLogo.dimensions && (
                         <span className="text-xs font-mono text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
                           {selectedLogo.dimensions}
@@ -454,21 +561,43 @@ export default function App() {
                         : 'bg-slate-950 border border-slate-800 text-white'
                     }`}
                   >
-                    <img
+                    <SafeImage
                       src={selectedLogo.url}
                       alt={selectedLogo.label}
                       className="max-h-48 max-w-full object-contain filter drop-shadow-sm select-none"
+                      fallbackDomain={data.meta.domain}
                     />
                   </div>
 
-                  <p className="text-xs text-slate-400 mt-4 text-center">
-                    Source identifiée : <span className="font-medium text-slate-700 dark:text-slate-300">{selectedLogo.source}</span>
-                  </p>
+                  {/* Recognition notice */}
+                  <div className="mt-4 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 dark:text-slate-400 gap-2">
+                    <p>
+                      Source : <span className="font-medium text-slate-700 dark:text-slate-300">{selectedLogo.source}</span>
+                    </p>
+                    {selectedLogo.isPrimary && (
+                      <span className="text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1">
+                        <Award className="w-3.5 h-3.5" />
+                        Logo le mieux défini & le plus emblématique
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Actions & Information Panel */}
                 <div className="lg:col-span-5 p-6 sm:p-8 flex flex-col justify-between space-y-6">
                   <div className="space-y-4">
+                    {selectedLogo.isPrimary && (
+                      <div className="p-3.5 rounded-xl bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-950/40 dark:to-yellow-950/30 border border-amber-200/80 dark:border-amber-800/60 space-y-1">
+                        <div className="flex items-center gap-1.5 text-amber-800 dark:text-amber-300 font-bold text-xs uppercase tracking-wider">
+                          <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
+                          <span>Choix Optimal Sélectionné</span>
+                        </div>
+                        <p className="text-xs text-amber-900/90 dark:text-amber-200/90">
+                          {selectedLogo.reason || 'Ce logo a été identifié comme le plus net et le plus universellement utilisé pour cette marque.'}
+                        </p>
+                      </div>
+                    )}
+
                     <div>
                       <h3 className="font-semibold text-lg text-slate-900 dark:text-white">
                         {selectedLogo.label}
@@ -478,7 +607,13 @@ export default function App() {
                       </p>
                     </div>
 
-                    <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-800 space-y-2 text-xs">
+                    <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-800 space-y-2.5 text-xs">
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Qualité visuelle :</span>
+                        <span className="font-semibold text-slate-700 dark:text-slate-200">
+                          {selectedLogo.clarityBadge || selectedLogo.type.toUpperCase()}
+                        </span>
+                      </div>
                       <div className="flex justify-between">
                         <span className="text-slate-500">Format d&apos;image :</span>
                         <span className="font-semibold uppercase text-slate-700 dark:text-slate-200">
@@ -486,14 +621,14 @@ export default function App() {
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-slate-500">Origine :</span>
+                        <span className="text-slate-500">Origine détectée :</span>
                         <span className="font-semibold text-slate-700 dark:text-slate-200">
                           {selectedLogo.source}
                         </span>
                       </div>
                       {selectedLogo.dimensions && (
                         <div className="flex justify-between">
-                          <span className="text-slate-500">Taille annoncée :</span>
+                          <span className="text-slate-500">Résolution :</span>
                           <span className="font-mono text-slate-700 dark:text-slate-200">
                             {selectedLogo.dimensions}
                           </span>
@@ -571,87 +706,145 @@ export default function App() {
 
             {/* Logo Gallery (All detected versions) */}
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
                   <Layers className="w-5 h-5 text-indigo-600" />
-                  <span>Toutes les versions & formats détectés</span>
+                  <span>Toutes les variantes détectées</span>
                 </h3>
-                <span className="text-xs text-slate-500">
-                  Cliquez sur un logo pour l&apos;inspecter
-                </span>
+
+                {/* Filter categories */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                  <button
+                    type="button"
+                    onClick={() => setFilterCategory('all')}
+                    className={`text-xs px-3 py-1.5 rounded-lg font-medium transition cursor-pointer ${
+                      filterCategory === 'all'
+                        ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    Tous ({data.logos.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFilterCategory('recommended')}
+                    className={`text-xs px-3 py-1.5 rounded-lg font-medium transition cursor-pointer flex items-center gap-1 ${
+                      filterCategory === 'recommended'
+                        ? 'bg-amber-500 text-white'
+                        : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100'
+                    }`}
+                  >
+                    <Star className="w-3 h-3 fill-current" />
+                    Recommandé
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFilterCategory('svg')}
+                    className={`text-xs px-3 py-1.5 rounded-lg font-medium transition cursor-pointer ${
+                      filterCategory === 'svg'
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100'
+                    }`}
+                  >
+                    SVG Vectoriel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFilterCategory('hd')}
+                    className={`text-xs px-3 py-1.5 rounded-lg font-medium transition cursor-pointer ${
+                      filterCategory === 'hd'
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100'
+                    }`}
+                  >
+                    Haute Définition
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                {data.logos.map((logo) => {
-                  const isSelected = selectedLogo?.id === logo.id;
-                  return (
-                    <div
-                      key={logo.id}
-                      onClick={() => setSelectedLogo(logo)}
-                      className={`group relative rounded-xl border p-3 flex flex-col items-center justify-between transition-all cursor-pointer bg-white dark:bg-slate-900 ${
-                        isSelected
-                          ? 'border-indigo-600 ring-2 ring-indigo-500/20 shadow-md'
-                          : 'border-slate-200 dark:border-slate-800 hover:border-indigo-300 dark:hover:border-indigo-700 hover:shadow-sm'
-                      }`}
-                    >
-                      <div className="w-full flex items-center justify-between mb-2">
-                        <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                          {logo.type}
-                        </span>
-                        {logo.isPrimary && (
-                          <span className="text-[10px] bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 font-semibold px-1.5 py-0.5 rounded">
-                            Principal
+                {data.logos
+                  .filter((logo) => {
+                    if (filterCategory === 'recommended') return logo.isPrimary;
+                    if (filterCategory === 'svg') return logo.type === 'svg';
+                    if (filterCategory === 'hd') return logo.dimensions?.includes('512') || logo.dimensions?.includes('256') || logo.type === 'svg';
+                    return true;
+                  })
+                  .map((logo) => {
+                    const isSelected = selectedLogo?.id === logo.id;
+                    return (
+                      <div
+                        key={logo.id}
+                        onClick={() => setSelectedLogo(logo)}
+                        className={`group relative rounded-xl border p-3 flex flex-col items-center justify-between transition-all cursor-pointer bg-white dark:bg-slate-900 ${
+                          isSelected
+                            ? 'border-indigo-600 ring-2 ring-indigo-500/20 shadow-md'
+                            : 'border-slate-200 dark:border-slate-800 hover:border-indigo-300 dark:hover:border-indigo-700 hover:shadow-sm'
+                        }`}
+                      >
+                        <div className="w-full flex items-center justify-between mb-2">
+                          <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                            {logo.type}
                           </span>
-                        )}
-                      </div>
+                          {logo.isPrimary ? (
+                            <span className="text-[10px] bg-gradient-to-r from-amber-500 to-yellow-500 text-white font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5 shadow-xs">
+                              <Star className="w-2.5 h-2.5 fill-white" />
+                              Top
+                            </span>
+                          ) : logo.clarityBadge && logo.clarityBadge !== 'Standard' ? (
+                            <span className="text-[9px] font-medium text-slate-500 truncate max-w-[90px]">
+                              {logo.clarityBadge.split(' ')[0]}
+                            </span>
+                          ) : null}
+                        </div>
 
-                      {/* Thumbnail Image */}
-                      <div className="w-full h-24 rounded-lg bg-slate-50 dark:bg-slate-950/60 p-2 flex items-center justify-center border border-slate-100 dark:border-slate-800/80 group-hover:scale-105 transition-transform">
-                        <img
-                          src={logo.url}
-                          alt={logo.label}
-                          className="max-h-full max-w-full object-contain"
-                          loading="lazy"
-                        />
-                      </div>
+                        {/* Thumbnail Image */}
+                        <div className="w-full h-24 rounded-lg bg-slate-50 dark:bg-slate-950/60 p-2 flex items-center justify-center border border-slate-100 dark:border-slate-800/80 group-hover:scale-105 transition-transform">
+                          <SafeImage
+                            src={logo.url}
+                            alt={logo.label}
+                            className="max-h-full max-w-full object-contain"
+                            fallbackDomain={data.meta.domain}
+                          />
+                        </div>
 
-                      <div className="w-full mt-2 text-center">
-                        <p className="text-xs font-medium text-slate-800 dark:text-slate-200 truncate">
-                          {logo.source}
-                        </p>
-                        <p className="text-[10px] text-slate-400 truncate">
-                          {logo.dimensions || logo.label}
-                        </p>
-                      </div>
+                        <div className="w-full mt-2 text-center">
+                          <p className="text-xs font-medium text-slate-800 dark:text-slate-200 truncate">
+                            {logo.source}
+                          </p>
+                          <p className="text-[10px] text-slate-400 truncate">
+                            {logo.dimensions || logo.label}
+                          </p>
+                        </div>
 
-                      {/* Hover action overlay */}
-                      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs rounded-xl opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 p-2">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDownload(logo);
-                          }}
-                          className="p-2 rounded-lg bg-white text-slate-900 hover:bg-indigo-50 transition shadow"
-                          title="Télécharger"
-                        >
-                          <Download className="w-4 h-4 text-indigo-600" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleCopyLink(logo);
-                          }}
-                          className="p-2 rounded-lg bg-white text-slate-900 hover:bg-indigo-50 transition shadow"
-                          title="Copier le lien"
-                        >
-                          <Copy className="w-4 h-4 text-slate-700" />
-                        </button>
+                        {/* Hover action overlay */}
+                        <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs rounded-xl opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 p-2">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDownload(logo);
+                            }}
+                            className="p-2 rounded-lg bg-white text-slate-900 hover:bg-indigo-50 transition shadow"
+                            title="Télécharger"
+                          >
+                            <Download className="w-4 h-4 text-indigo-600" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCopyLink(logo);
+                            }}
+                            className="p-2 rounded-lg bg-white text-slate-900 hover:bg-indigo-50 transition shadow"
+                            title="Copier le lien"
+                          >
+                            <Copy className="w-4 h-4 text-slate-700" />
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
               </div>
             </div>
           </section>
@@ -688,10 +881,11 @@ export default function App() {
                 >
                   {item.logoUrl ? (
                     <div className="w-8 h-8 rounded-lg bg-slate-50 dark:bg-slate-800 p-1 flex items-center justify-center shrink-0 border border-slate-100 dark:border-slate-700">
-                      <img
+                      <SafeImage
                         src={item.logoUrl}
                         alt={item.domain}
                         className="max-h-full max-w-full object-contain"
+                        fallbackDomain={item.domain}
                       />
                     </div>
                   ) : (
